@@ -1,3 +1,5 @@
+//go:build !windows
+
 /*
 Copyright 2024 The KubeEdge Authors.
 
@@ -29,6 +31,7 @@ import (
 
 	"github.com/kubeedge/kubeedge/keadm/cmd/keadm/app/cmd/common"
 	"github.com/kubeedge/kubeedge/keadm/cmd/keadm/app/cmd/util"
+	"github.com/kubeedge/kubeedge/keadm/cmd/keadm/app/cmd/util/extsystem"
 )
 
 var (
@@ -43,33 +46,22 @@ keadm reset edge
 )
 
 func NewOtherEdgeReset() *cobra.Command {
-	isEdgeNode := false
 	reset := util.NewResetOptions()
 	var cmd = &cobra.Command{
 		Use:     "edge",
 		Short:   "Teardowns EdgeCore component",
 		Long:    resetLongDescription,
 		Example: resetExample,
-		PreRunE: func(cmd *cobra.Command, args []string) error {
+		PreRunE: func(_ *cobra.Command, _ []string) error {
 			if reset.PreRun != "" {
 				fmt.Printf("Executing pre-run script: %s\n", reset.PreRun)
 				if err := util.RunScript(reset.PreRun); err != nil {
 					return err
 				}
 			}
-			whoRunning := util.EdgeCoreRunningModuleV2(reset)
-			if whoRunning == common.NoneRunning {
-				fmt.Println("None of EdgeCore components are running in this host, exit")
-				os.Exit(0)
-			}
-
-			if whoRunning == common.KubeEdgeEdgeRunning {
-				isEdgeNode = true
-			}
-
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if !reset.Force {
 				fmt.Println("[reset] WARNING: Changes made to this host by 'keadm init' or 'keadm join' will be reverted.")
 				fmt.Print("[reset] Are you sure you want to proceed? [y/N]: ")
@@ -86,7 +78,7 @@ func NewOtherEdgeReset() *cobra.Command {
 			staticPodPath := ""
 			config, err := util.ParseEdgecoreConfig(common.EdgecoreConfigPath)
 			if err != nil {
-				fmt.Printf("failed to get edgecore's config with err:%v\n", err)
+				fmt.Printf("Failed to get edgecore's config with err:%v\n", err)
 			} else {
 				if reset.Endpoint == "" {
 					reset.Endpoint = config.Modules.Edged.TailoredKubeletConfig.ContainerRuntimeEndpoint
@@ -115,7 +107,7 @@ func NewOtherEdgeReset() *cobra.Command {
 			}
 
 			// 3. Clean stateful directories
-			if err := util.CleanDirectories(isEdgeNode); err != nil {
+			if err := util.CleanDirectories(true); err != nil {
 				return err
 			}
 
@@ -124,7 +116,7 @@ func NewOtherEdgeReset() *cobra.Command {
 			return nil
 		},
 
-		PostRunE: func(cmd *cobra.Command, args []string) error {
+		PostRunE: func(_ *cobra.Command, _ []string) error {
 			// post-run script
 			if reset.PostRun != "" {
 				fmt.Printf("Executing post-run script: %s\n", reset.PostRun)
@@ -142,10 +134,25 @@ func NewOtherEdgeReset() *cobra.Command {
 
 // TearDownEdgeCore will bring down edge component,
 func TearDownEdgeCore() error {
-	ke := &util.KubeEdgeInstTool{Common: util.Common{}}
-	err := ke.TearDown()
+	extSystem, err := extsystem.GetExtSystem()
 	if err != nil {
-		return fmt.Errorf("TearDown failed, err:%v", err)
+		return fmt.Errorf("failed to get init system, err: %v", err)
+	}
+	if extSystem.ServiceExists(util.KubeEdgeBinaryName) {
+		if err := extSystem.ServiceStop(util.KubeEdgeBinaryName); err != nil {
+			fmt.Printf("Failed to stop edgecore service, err: %v\n", err)
+			return nil
+		}
+		if extSystem.ServiceIsEnabled(util.KubeEdgeBinaryName) {
+			if err := extSystem.ServiceDisable(util.KubeEdgeBinaryName); err != nil {
+				fmt.Printf("Failed to disable edgecore service, err: %v\n", err)
+				return nil
+			}
+		}
+		if err := extSystem.ServiceRemove(util.KubeEdgeBinaryName); err != nil {
+			fmt.Printf("Failed to remove edgecore service, err: %v\n", err)
+			return nil
+		}
 	}
 	return nil
 }

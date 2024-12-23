@@ -72,7 +72,7 @@ func CleanDirectories(isEdgeNode bool) error {
 	}
 
 	if isEdgeNode {
-		dirToClean = append(dirToClean, "/var/lib/dockershim", "/var/run/kubernetes", "/var/lib/cni")
+		dirToClean = append(dirToClean, EdgeKubeletDir)
 	}
 
 	for _, dir := range dirToClean {
