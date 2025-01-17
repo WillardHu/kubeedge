@@ -184,13 +184,11 @@ func (m *metaManager) processInsert(message model.Message) {
 
 	msgSource := message.GetSource()
 	if msgSource == modules.EdgedModuleName {
-		if !connect.IsConnected() {
-			klog.Warningf("process remote failed, req[%s], err: %v", msgDebugInfo(&message), errNotConnected)
-			feedbackError(fmt.Errorf("failed to process remote: %s", errNotConnected), message)
+		if connect.IsConnected() {
+			m.processRemote(message)
 			return
 		}
-		m.processRemote(message)
-		return
+		klog.Info("disconnected from the cloud, hnadle insert message locally")
 	}
 	if err := m.handleMessage(&message); err != nil {
 		feedbackError(err, message)

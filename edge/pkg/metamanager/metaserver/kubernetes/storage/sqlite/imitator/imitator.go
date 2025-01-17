@@ -143,6 +143,7 @@ func (s *imitator) Delete(ctx context.Context, key string) error {
 	s.lock.Unlock()
 	return nil
 }
+
 func (s *imitator) DeleteObj(ctx context.Context, obj runtime.Object) error {
 	key, err := metaserver.KeyFuncObj(obj)
 	if err != nil {
@@ -151,6 +152,7 @@ func (s *imitator) DeleteObj(ctx context.Context, obj runtime.Object) error {
 	err = s.Delete(context.TODO(), key)
 	return err
 }
+
 func (s *imitator) Get(ctx context.Context, key string) (Resp, error) {
 	var resp Resp
 	s.lock.RLock()
@@ -168,6 +170,7 @@ func (s *imitator) Get(ctx context.Context, key string) (Resp, error) {
 		return Resp{}, fmt.Errorf("the server could not find the requested resource")
 	}
 }
+
 func (s *imitator) List(ctx context.Context, key string) (Resp, error) {
 	gvr, ns, name := metaserver.ParseKey(key)
 	//if name != NullName {

@@ -7,6 +7,8 @@ import (
 
 	api "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/klog/v2"
 
 	"github.com/kubeedge/beehive/pkg/core/model"
 	"github.com/kubeedge/kubeedge/edge/pkg/common/message"
@@ -46,6 +48,12 @@ func newNodes(namespace string, s SendInterface) *nodes {
 }
 
 func (c *nodes) Create(cm *api.Node) (*api.Node, error) {
+	if cm.Kind == "" {
+		cm.Kind = reflect.TypeOf(api.Node{}).Name()
+	}
+	if cm.APIVersion == "" {
+		cm.APIVersion = api.SchemeGroupVersion.String()
+	}
 	resource := fmt.Sprintf("%s/%s/%s", c.namespace, model.ResourceTypeNode, cm.Name)
 	nodeMsg := message.BuildMsg(modules.MetaGroup, "", modules.EdgedModuleName, resource, model.InsertOperation, cm)
 	resp, err := c.send.SendSync(nodeMsg)
@@ -57,11 +65,17 @@ func (c *nodes) Create(cm *api.Node) (*api.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse message to node failed, err: %v", err)
 	}
-
+	klog.Info("create response:", string(content))
 	return handleNodeResp(content)
 }
 
 func (c *nodes) Update(cm *api.Node) error {
+	if cm.Kind == "" {
+		cm.Kind = reflect.TypeOf(api.Node{}).Name()
+	}
+	if cm.APIVersion == "" {
+		cm.APIVersion = api.SchemeGroupVersion.String()
+	}
 	resource := fmt.Sprintf("%s/%s/%s", c.namespace, model.ResourceTypeNode, cm.Name)
 	nodeMsg := message.BuildMsg(modules.MetaGroup, "", modules.EdgedModuleName, resource, model.UpdateOperation, cm)
 	_, err := c.send.SendSync(nodeMsg)
@@ -105,19 +119,27 @@ func (c *nodes) Get(name string) (*api.Node, error) {
 	}
 
 	if msg.GetOperation() == model.ResponseOperation && msg.GetSource() == modules.MetaManagerModuleName {
-		return handleNodeFromMetaDB(content)
+		return handleNodeFromMetaDB(name, content)
 	}
 	return handleNodeFromMetaManager(content)
 }
 
-func handleNodeFromMetaDB(content []byte) (*api.Node, error) {
+func handleNodeFromMetaDB(name string, content []byte) (*api.Node, error) {
 	var lists []string
 	err := json.Unmarshal(content, &lists)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal message to node list from db failed, err: %v", err)
 	}
 
-	if len(lists) != 1 {
+	size := len(lists)
+	if size == 0 {
+		klog.Warningf("not found node '%s' from meta db", name)
+		return nil, apierrors.NewNotFound(schema.GroupResource{
+			Group:    api.GroupName,
+			Resource: reflect.TypeOf(api.Node{}).Name(),
+		}, name)
+	}
+	if len(lists) > 1 {
 		return nil, fmt.Errorf("node length from meta db is %d", len(lists))
 	}
 
