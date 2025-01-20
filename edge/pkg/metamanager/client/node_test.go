@@ -22,7 +22,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	api "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -46,7 +46,7 @@ func TestNode_Create(t *testing.T) {
 	assert := assert.New(t)
 
 	nodeName := "test-node"
-	inputNode := &api.Node{
+	inputNode := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 		},
@@ -55,7 +55,7 @@ func TestNode_Create(t *testing.T) {
 	testCases := []struct {
 		name         string
 		respFunc     func(*model.Message) (*model.Message, error)
-		expectedNode *api.Node
+		expectedNode *corev1.Node
 		expectErr    bool
 	}{
 		{
@@ -108,7 +108,7 @@ func TestNode_Create(t *testing.T) {
 
 				content, err := message.GetContentData()
 				assert.NoError(err)
-				var node api.Node
+				var node corev1.Node
 				err = json.Unmarshal(content, &node)
 				assert.NoError(err)
 				assert.Equal(inputNode, &node)
@@ -137,7 +137,7 @@ func TestNode_Patch(t *testing.T) {
 	nodeName := "test-node"
 	patchData := []byte(`{"metadata":{"labels":{"test":"label"}}}`)
 
-	expectedNode := &api.Node{
+	expectedNode := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: nodeName,
 			Labels: map[string]string{
@@ -149,7 +149,7 @@ func TestNode_Patch(t *testing.T) {
 	testCases := []struct {
 		name         string
 		respFunc     func(*model.Message) (*model.Message, error)
-		expectedNode *api.Node
+		expectedNode *corev1.Node
 		expectErr    bool
 	}{
 		{
@@ -226,11 +226,11 @@ func TestHandleNodeFromMetaDB(t *testing.T) {
 	assert := assert.New(t)
 
 	// Test case 1: Valid node JSON in list
-	node := &api.Node{
+	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
 		},
-		Spec: api.NodeSpec{
+		Spec: corev1.NodeSpec{
 			PodCIDR: "10.0.0.0/24",
 		},
 	}
@@ -238,7 +238,7 @@ func TestHandleNodeFromMetaDB(t *testing.T) {
 	validList := []string{string(nodeJSON)}
 	validContent, _ := json.Marshal(validList)
 
-	result, err := handleNodeFromMetaDB(validContent)
+	result, err := handleNodeFromMetaDB(node.Name, validContent)
 	assert.NoError(err)
 	assert.Equal(node, result)
 
@@ -246,16 +246,16 @@ func TestHandleNodeFromMetaDB(t *testing.T) {
 	emptyList := []string{}
 	emptyContent, _ := json.Marshal(emptyList)
 
-	result, err = handleNodeFromMetaDB(emptyContent)
+	result, err = handleNodeFromMetaDB(node.Name, emptyContent)
 	assert.Error(err)
 	assert.Nil(result)
-	assert.Contains(err.Error(), "node length from meta db is 0")
+	assert.True(apierrors.IsNotFound(err))
 
 	// Test case 3: Invalid JSON in list
 	invalidList := []string{`{"invalid": json}`}
 	invalidContent, _ := json.Marshal(invalidList)
 
-	result, err = handleNodeFromMetaDB(invalidContent)
+	result, err = handleNodeFromMetaDB(node.Name, invalidContent)
 	assert.Error(err)
 	assert.Nil(result)
 	assert.Contains(err.Error(), "unmarshal message to node from db failed")
@@ -265,11 +265,11 @@ func TestHandleNodeFromMetaManager(t *testing.T) {
 	assert := assert.New(t)
 
 	// Test case 1: Valid node JSON
-	node := &api.Node{
+	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
 		},
-		Spec: api.NodeSpec{
+		Spec: corev1.NodeSpec{
 			PodCIDR: "10.0.0.0/24",
 		},
 	}
@@ -284,7 +284,7 @@ func TestHandleNodeFromMetaManager(t *testing.T) {
 
 	result, err = handleNodeFromMetaManager(emptyContent)
 	assert.NoError(err)
-	assert.Equal(&api.Node{}, result)
+	assert.Equal(&corev1.Node{}, result)
 
 	// Test case 3: Invalid JSON
 	invalidContent := []byte(`{"invalid": json}`)
@@ -299,7 +299,7 @@ func TestHandleNodeResp(t *testing.T) {
 	assert := assert.New(t)
 
 	// Test case 1: Valid node response
-	node := &api.Node{
+	node := &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "test-node",
 		},

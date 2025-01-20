@@ -44,6 +44,14 @@ linters-settings:
     ignore-words:
       - mosquitto
       - creater
+  revive:
+    rules:
+      - name: unused-parameter
+        severity: warning
+        disabled: true
+      - name: unused-receiver
+        severity: warning
+        disabled: true
 
 linters:
   disable-all: true
