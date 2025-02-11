@@ -16,10 +16,92 @@ limitations under the License.
 
 package actions
 
-type NodeUpgradeJobRunner struct {
-	baseActionRunner
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	operationsv1alpha2 "github.com/kubeedge/api/apis/operations/v1alpha2"
+	"github.com/kubeedge/kubeedge/edge/pkg/common/message"
+	"github.com/kubeedge/kubeedge/pkg/nodetask/actionflow"
+	nodetaskmsg "github.com/kubeedge/kubeedge/pkg/nodetask/message"
+)
+
+func newNodeUpgradeJobRunner() *ActionRunner {
+	var funcs nodeUpgradeJobFuncs
+	return &ActionRunner{
+		Actions: map[string]ActionFun{
+			string(operationsv1alpha2.NodeUpgradeJobActionCheck):               funcs.checkItems,
+			string(operationsv1alpha2.NodeUpgradeJobActionWaitingConfirmation): funcs.waitingConfirmation,
+			string(operationsv1alpha2.NodeUpgradeJobActionConfirm):             funcs.confirm,
+		},
+		Flow:               actionflow.FlowNodeUpgradeJob,
+		ReportActionStatus: funcs.reportActionStatus,
+		GetSpecSerializer:  funcs.getSpecSerializer,
+	}
 }
 
-func newNodeUpgradeJobRunner() *NodeUpgradeJobRunner {
-	return &NodeUpgradeJobRunner{}
+// nodeUpgradeJobFuncs used to control function scope
+type nodeUpgradeJobFuncs struct{}
+
+func (nodeUpgradeJobFuncs) checkItems(_ctx context.Context, specser SpecSerializer) (bool, error) {
+	spec, ok := specser.GetSpec().(operationsv1alpha2.NodeUpgradeJobSpec)
+	if !ok {
+		return false, fmt.Errorf("failed to conv spec to NodeUpgradeJobSpec, actual type %T",
+			specser.GetSpec())
+	}
+	if err := PreCheck(spec.CheckItems); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (nodeUpgradeJobFuncs) waitingConfirmation(_ctx context.Context, specser SpecSerializer) (bool, error) {
+	spec, ok := specser.GetSpec().(operationsv1alpha2.NodeUpgradeJobSpec)
+	if !ok {
+		return false, fmt.Errorf("failed to conv spec to NodeUpgradeJobSpec, actual type %T",
+			specser.GetSpec())
+	}
+	// If confirmation is required, return false to block the action flow.
+	return !spec.RequireConfirmation, nil
+}
+
+func (nodeUpgradeJobFuncs) confirm(_ctx context.Context, _specser SpecSerializer) (bool, error) {
+	// Used to process the confirmation action and transition to backup.
+	return true, nil
+}
+
+func (nodeUpgradeJobFuncs) backup(_ctx context.Context, _specser SpecSerializer,
+) (bool, error) {
+	// TODO: ..
+	return true, nil
+}
+
+func (nodeUpgradeJobFuncs) getSpecSerializer(specData []byte) (SpecSerializer, error) {
+	return NewSpecSerializer(specData, func(d []byte) (any, error) {
+		var spec operationsv1alpha2.NodeUpgradeJobSpec
+		if err := json.Unmarshal(d, &spec); err != nil {
+			return nil, err
+		}
+		return &spec, nil
+	})
+}
+
+func (nodeUpgradeJobFuncs) reportActionStatus(jobname, nodename, action string, err error) {
+	res := nodetaskmsg.Resource{
+		APIVersion:   operationsv1alpha2.SchemeGroupVersion.String(),
+		ResourceType: operationsv1alpha2.ResourceNodeUpgradeJob,
+		JobName:      jobname,
+		NodeName:     nodename,
+	}
+	var errmsg string
+	if err != nil {
+		errmsg = err.Error()
+	}
+	body := nodetaskmsg.UpstreamMessage{
+		Action: action,
+		Succ:   err == nil,
+		Reason: errmsg,
+	}
+	message.ReportNodeTaskStatus(res, body)
 }

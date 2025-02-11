@@ -20,6 +20,7 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 type JobState string
 
+// Constants for job state
 const (
 	JobStateInit       JobState = "Init"
 	JobStateInProgress JobState = "InProgress"
@@ -27,10 +28,15 @@ const (
 	JobStateFailure    JobState = "Failure"
 )
 
+// IsFinal returns whether the node task is in the final state.
+func (s JobState) IsFinal() bool {
+	return s == JobStateComplated || s == JobStateFailure
+}
+
 type NodeExecutionState string
 
+// Constants for task execution state in a node.
 const (
-	NodeExecutionStateInProgress NodeExecutionState = "InProgress"
 	NodeExecutionStateSuccessful NodeExecutionState = "Successful"
 	NodeExecutionStateFailure    NodeExecutionState = "Failure"
 )
@@ -48,3 +54,10 @@ type BasicNodeTaskStatus struct {
 	// Time represents for the running time of the NodeTask.
 	Time string `json:"time,omitempty"`
 }
+
+// Constants for node job check items.
+const (
+	CheckItemCPU  string = "cpu"
+	CheckItemMem  string = "mem"
+	CheckItemDisk string = "disk"
+)

@@ -20,80 +20,84 @@ import (
 	"context"
 	"fmt"
 
+	"k8s.io/klog/v2"
+
 	operationsv1alpha2 "github.com/kubeedge/api/apis/operations/v1alpha2"
 	"github.com/kubeedge/kubeedge/pkg/nodetask/actionflow"
-	nodetaskmsg "github.com/kubeedge/kubeedge/pkg/nodetask/message"
 )
 
 // runners is a global map variables,
-// used to cache the implementation of the task action runner.
-var runners = map[string]ActionRunner{}
+// used to cache the implementation of the job action runner.
+var runners = map[string]*ActionRunner{}
 
 func Init() {
-	registerRunner(operationsv1alpha2.ResourceNodeUpgradeJob,
+	RegisterRunner(operationsv1alpha2.ResourceNodeUpgradeJob,
 		newNodeUpgradeJobRunner())
-	registerRunner(operationsv1alpha2.ResourceImagePrePullJob,
-		newImagePrepullJobRunner())
+	RegisterRunner(operationsv1alpha2.ResourceImagePrePullJob,
+		newImagePrePullJobRunner())
 }
 
-// registerRunner registers the implementation of the task action runner.
-func registerRunner(name string, runner ActionRunner) {
+// registerRunner registers the implementation of the job action runner.
+func RegisterRunner(name string, runner *ActionRunner) {
 	runners[name] = runner
 }
 
-// GetRunner returns the implementation of the task action runner.
-func GetRunner(name string) ActionRunner {
+// GetRunner returns the implementation of the job action runner.
+func GetRunner(name string) *ActionRunner {
 	return runners[name]
 }
 
-// ActionRunner defines the interface of the task action runner.
-type ActionRunner interface {
-	RunAction(startupAction string, task *nodetaskmsg.TaskDownstreamMessage)
-}
-
-// ActionFun defines the function type of the task action handler.
+// ActionFun defines the function type of the job action handler.
 // The first return value defines whether the action should continue.
 // In some scenarios, we want the flow to be paused and continue it
 // when triggered elsewhere.
-type ActionFun = func(ctx context.Context, task *nodetaskmsg.TaskDownstreamMessage) (bool, error)
+type ActionFun = func(ctx context.Context, specser SpecSerializer) (bool, error)
 
-// baseActionRunner defines the abstruct of the task action runner.
+// baseActionRunner defines the abstruct of the job action runner.
 // The implementation of ActionRunner must compose this structure.
-type baseActionRunner struct {
+type ActionRunner struct {
 	// actions defines the function implementation of each action.
-	actions map[string]ActionFun
-	// flow defines the action flow of node task.
-	flow actionflow.Flow
-	// reportFun uses to report status of node task. If the err is not nil,
+	Actions map[string]ActionFun
+	// flow defines the action flow of node job.
+	Flow *actionflow.Flow
+	// ReportActionStatus uses to report status of node action. If the err is not nil,
 	// the failure status needs to be reported.
-	reportFun func(action, taskname, nodename string, err error)
+	ReportActionStatus func(jobname, nodename, action string, err error)
+	// GetSpecSerializer ... TODO:
+	GetSpecSerializer func(specData []byte) (SpecSerializer, error)
 }
 
-// Add task action runner to runners.
-func (b *baseActionRunner) addAction(action string, handler ActionFun) {
-	b.actions[action] = handler
+// Add job action runner to runners.
+func (r *ActionRunner) addAction(action string, handler ActionFun) {
+	r.Actions[action] = handler
 }
 
-// Get task action runner from runners, returns error when not found.
-func (b *baseActionRunner) mustGetAction(action string) (ActionFun, error) {
-	actionFn, ok := b.actions[action]
+// Get job action runner from runners, returns error when not found.
+func (r *ActionRunner) mustGetAction(action string) (ActionFun, error) {
+	actionFn, ok := r.Actions[action]
 	if !ok {
-		return nil, fmt.Errorf("invalid task action %s", action)
+		return nil, fmt.Errorf("invalid job action %s", action)
 	}
 	return actionFn, nil
 }
 
-// RunAction runs the task action.
-func (b *baseActionRunner) RunAction(startupAction string, msg *nodetaskmsg.TaskDownstreamMessage) {
-	ctx := context.Background()
-	for action := b.flow.Find(startupAction); action != nil && !action.Final(); {
-		actionFn, err := b.mustGetAction(action.Name)
+// RunAction runs the job action.
+func (r *ActionRunner) RunAction(jobname, nodename, action string, specData []byte) {
+	logr := klog.NewKlogr().WithValues("jobname", jobname)
+	ctx := klog.NewContext(context.Background(), logr)
+	ser, err := r.GetSpecSerializer(specData)
+	if err != nil {
+		r.ReportActionStatus(jobname, nodename, action, err)
+		return
+	}
+	for action := r.Flow.Find(action); action != nil && !action.IsFinal(); {
+		actionFn, err := r.mustGetAction(action.Name)
 		if err != nil {
-			b.reportFun(action.Name, msg.Name, msg.NodeName, err)
+			r.ReportActionStatus(action.Name, jobname, nodename, err)
 			return
 		}
-		doNext, err := actionFn(ctx, msg)
-		b.reportFun(action.Name, msg.Name, msg.NodeName, err)
+		doNext, err := actionFn(ctx, ser)
+		r.ReportActionStatus(jobname, nodename, action.Name, err)
 		if err != nil {
 			action = action.Next(false)
 			continue

@@ -24,56 +24,60 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kubeedge/kubeedge/pkg/nodetask/actionflow"
-	nodetaskmsg "github.com/kubeedge/kubeedge/pkg/nodetask/message"
 )
 
-type fakeRunner struct {
+type fakeFuncs struct {
 	stepcount    int
 	triggerError bool
-	baseActionRunner
 }
 
-func (fr *fakeRunner) step1(_ context.Context, _ *nodetaskmsg.TaskDownstreamMessage,
+func (fr *fakeFuncs) step1(_ context.Context, _ SpecSerializer,
 ) (bool, error) {
 	fr.stepcount++
 	return true, nil
 }
 
-func (fr *fakeRunner) step2(_ context.Context, _ *nodetaskmsg.TaskDownstreamMessage,
+func (fr *fakeFuncs) step2(_ context.Context, _ SpecSerializer,
 ) (bool, error) {
 	fr.stepcount++
 	return false, nil
 }
 
-func (fr *fakeRunner) step3(_ context.Context, _ *nodetaskmsg.TaskDownstreamMessage,
+func (fr *fakeFuncs) step3(_ context.Context, _ SpecSerializer,
 ) (bool, error) {
 	fr.stepcount++
 	return false, errors.New("test error")
 }
 
-func (fr *fakeRunner) step3fail(_ context.Context, _ *nodetaskmsg.TaskDownstreamMessage,
+func (fr *fakeFuncs) step3fail(_ context.Context, _ SpecSerializer,
 ) (bool, error) {
 	fr.stepcount++
 	return true, nil
 }
 
-func (fr *fakeRunner) reportFun(_, _, _ string, err error) {
+func (fr *fakeFuncs) reportActionStatus(_jobname, _nodename, _action string, err error) {
 	if err != nil {
 		fr.triggerError = true
 	}
 }
 
-func newFakeRunner() *fakeRunner {
-	fr := &fakeRunner{}
-	fr.baseActionRunner = baseActionRunner{
-		actions: map[string]ActionFun{
-			"step1":     fr.step1,
-			"step2":     fr.step2,
-			"step3":     fr.step3,
-			"step3fail": fr.step3fail,
+func (fr *fakeFuncs) getSpecSerializer(specData []byte) (SpecSerializer, error) {
+	return NewSpecSerializer(specData, func(_data []byte) (any, error) {
+		return nil, nil
+	})
+}
+
+func newFakeRunner() (*ActionRunner, *fakeFuncs) {
+	funcs := &fakeFuncs{}
+	runner := &ActionRunner{
+		Actions: map[string]ActionFun{
+			"step1":     funcs.step1,
+			"step2":     funcs.step2,
+			"step3":     funcs.step3,
+			"step3fail": funcs.step3fail,
 		},
-		flow: actionflow.Flow{
-			First: actionflow.Action{
+		Flow: &actionflow.Flow{
+			First: &actionflow.Action{
 				Name: "step1",
 				NextSuccessful: &actionflow.Action{
 					Name: "step2",
@@ -86,18 +90,19 @@ func newFakeRunner() *fakeRunner {
 				},
 			},
 		},
-		reportFun: fr.reportFun,
+		ReportActionStatus: funcs.reportActionStatus,
+		GetSpecSerializer:  funcs.getSpecSerializer,
 	}
-	return fr
+	return runner, funcs
 }
 
 func TestRunAction(t *testing.T) {
-	msg := &nodetaskmsg.TaskDownstreamMessage{}
-	fr := newFakeRunner()
-	fr.RunAction("step1", msg)
-	require.Equal(t, 2, fr.stepcount)
-	require.False(t, fr.triggerError)
-	fr.RunAction("step3", msg)
-	require.Equal(t, 3, fr.stepcount)
-	require.True(t, fr.triggerError)
+	jobname, nodename := "test", "node1"
+	r, funcs := newFakeRunner()
+	r.RunAction(jobname, nodename, "step1", nil)
+	require.Equal(t, 2, funcs.stepcount)
+	require.False(t, funcs.triggerError)
+	r.RunAction(jobname, nodename, "step3", nil)
+	require.Equal(t, 3, funcs.stepcount)
+	require.True(t, funcs.triggerError)
 }
