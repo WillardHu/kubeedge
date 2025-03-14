@@ -141,7 +141,6 @@ type NodeUpgradeJobAction string
 
 const (
 	NodeUpgradeJobActionCheck               NodeUpgradeJobAction = "Check"
-	NodeUpgradeJobActionConfirm             NodeUpgradeJobAction = "Confirm"
 	NodeUpgradeJobActionWaitingConfirmation NodeUpgradeJobAction = "WaitingConfirmation"
 	NodeUpgradeJobActionBackUp              NodeUpgradeJobAction = "BackUp"
 	NodeUpgradeJobActionUpgrade             NodeUpgradeJobAction = "Upgrade"

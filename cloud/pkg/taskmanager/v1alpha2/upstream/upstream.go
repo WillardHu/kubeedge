@@ -49,6 +49,7 @@ var upstreamHandlers = make(map[string]UpstreamHandler)
 
 // Init registers the upstream handlers.
 func Init(ctx context.Context) {
+	upstreamHandlers[operationsv1alpha2.ResourceNodeUpgradeJob] = newNodeUpgradeJobHandler(ctx)
 	upstreamHandlers[operationsv1alpha2.ResourceImagePrePullJob] = newImagePrePullJobHandler(ctx)
 }
 

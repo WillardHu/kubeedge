@@ -111,6 +111,7 @@ func setupControllers(ctx context.Context, mgr manager.Manager, che cache.Cache)
 	}
 	if features.DefaultFeatureGate.Enabled(features.NodeTaskV1alpha2) {
 		klog.Info("enabled the node task v1alpha2")
+		ctls = append(ctls, nodetask.NewNodeUpgradeJobController(cli, che))
 		ctls = append(ctls, nodetask.NewImagePrePullJobController(cli, che))
 	}
 
