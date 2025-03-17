@@ -53,6 +53,7 @@ servers (mosquito), offering publish and subscribe capabilities to other compone
 is the message processor between edged and edgehub. It is also responsible for storing/retrieving metadata
 to/from a lightweight database (SQLite).ServiceBus is a HTTP client to interact with HTTP servers (REST),
 offering HTTP client capabilities to components of cloud to reach HTTP servers running at edge. `,
+		Version: version.Get().String(),
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.PrintMinConfigAndExitIfRequested(v1alpha2.NewMinEdgeCoreConfig())
 			flag.PrintDefaultConfigAndExitIfRequested(v1alpha2.NewDefaultEdgeCoreConfig())
