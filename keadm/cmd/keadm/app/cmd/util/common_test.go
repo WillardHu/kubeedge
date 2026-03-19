@@ -932,3 +932,73 @@ func TestCleanupCompressFile(t *testing.T) {
 		t.Logf("Expected error: %v", err)
 	}
 }
+
+func TestIsTrustedFile(t *testing.T) {
+	cases := []struct {
+		trustedFiles []TrustedFile
+		fileName     string
+		expected     bool
+	}{
+		{
+			trustedFiles: nil,
+			fileName:     "test.txt",
+			expected:     false,
+		},
+		{
+			trustedFiles: []TrustedFile{
+				{
+					Path:    "test.txt",
+					IsRegex: false,
+				},
+			},
+			fileName: "test.txt",
+			expected: true,
+		},
+		{
+			trustedFiles: []TrustedFile{
+				{
+					Path:    "test.txt",
+					IsRegex: false,
+				},
+			},
+			fileName: "test1.txt",
+			expected: false,
+		},
+		{
+			trustedFiles: []TrustedFile{
+				{
+					Path:    "^a/[a-zA-Z0-9._\\-]+.txt",
+					IsRegex: true,
+				},
+			},
+			fileName: "a/test.txt",
+			expected: true,
+		},
+		{
+			trustedFiles: []TrustedFile{
+				{
+					Path:    "^a/[a-zA-Z0-9._\\-]+.txt",
+					IsRegex: true,
+				},
+			},
+			fileName: "test.txt",
+			expected: false,
+		},
+		{
+			trustedFiles: []TrustedFile{
+				{
+					Path:    "^a/[a-zA-Z0-9._\\-]+.txt",
+					IsRegex: true,
+				},
+			},
+			fileName: "b/test.txt",
+			expected: false,
+		},
+	}
+
+	for i, c := range cases {
+		t.Run(fmt.Sprintf("test case %d", i+1), func(t *testing.T) {
+			assert.Equal(t, c.expected, isTrustedFile(c.trustedFiles, c.fileName))
+		})
+	}
+}

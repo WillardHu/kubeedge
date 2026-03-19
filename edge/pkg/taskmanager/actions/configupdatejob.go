@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -98,15 +99,14 @@ func (h *configUpdateJobActionHandler) updateConfig(
 		return resp
 	}
 
-	var setFields string
+	var setFields []string
 	for updateKey, updateVal := range spec.UpdateFields {
-		setFields = setFields + fmt.Sprintf("%s=%s,", updateKey, updateVal)
+		setFields = append(setFields, fmt.Sprintf("%s=%s", updateKey, updateVal))
 	}
-	setFields = strings.TrimSuffix(setFields, ",")
-	cmdStr := execs.NewCommand(fmt.Sprintf("keadm config-update --set %s", setFields))
-	err := cmdStr.Exec()
+	cmd := exec.Command("keadm", "config-update", "--set", strings.Join(setFields, ","))
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		resp.err = err
+		resp.err = fmt.Errorf("update config failed, err: %w, output: %s", err, out)
 		return resp
 	}
 	return resp

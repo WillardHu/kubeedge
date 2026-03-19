@@ -88,6 +88,13 @@ func DownloadEdgecoreBin(options types.InstallOptions, version semver.Version) e
 	return installKubeEdge(options, version)
 }
 
+var trustedKeadmFiles = []TrustedFile{
+	{Path: `^keadm-v\d+\.\d+\.\d+(-[a-zA-Z0-9_.]+(?:-[a-zA-Z0-9_.]+)*)?-windows-amd64/`, IsRegex: true},
+	{Path: `^keadm-v\d+\.\d+\.\d+(-[a-zA-Z0-9_.]+(?:-[a-zA-Z0-9_.]+)*)?-windows-amd64/keadm/`, IsRegex: true},
+	{Path: `^keadm-v\d+\.\d+\.\d+(-[a-zA-Z0-9_.]+(?:-[a-zA-Z0-9_.]+)*)?-windows-amd64/keadm/keadm.exe`, IsRegex: true},
+	{Path: `^keadm-v\d+\.\d+\.\d+(-[a-zA-Z0-9_.]+(?:-[a-zA-Z0-9_.]+)*)?-windows-amd64/version`, IsRegex: true},
+}
+
 // installKubeEdge downloads the provided version of KubeEdge Edgecore For windows.
 // Untar's in the specified location c:/etc/kubeedge/ and then copies
 // the binary to excecutables' path (eg: c:/usr/local/bin)
@@ -168,7 +175,7 @@ func installKubeEdge(options types.InstallOptions, version semver.Version) error
 	}
 
 	// decompress the release pkg
-	if err = DecompressTarGz(filePath, options.TarballPath); err != nil {
+	if err = DecompressTarGz(filePath, options.TarballPath, trustedKeadmFiles...); err != nil {
 		return err
 	}
 	// check if the edgecore.exe exists

@@ -91,7 +91,7 @@ func NewEdgeBatchProcess() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return processBatchProcess(cfg, step)
+			return newBatchProcess(bacthProcessOpts, cfg, step).run()
 		},
 	}
 	// Adding the gen-config subcommand
@@ -100,7 +100,25 @@ func NewEdgeBatchProcess() *cobra.Command {
 	return cmd
 }
 
-func processBatchProcess(cfg *common.Config, step *common.Step) error {
+type batchProcess struct {
+	opts *common.BatchProcessOptions
+	cfg  *common.Config
+	step *common.Step
+}
+
+func newBatchProcess(
+	opts *common.BatchProcessOptions,
+	cfg *common.Config,
+	step *common.Step,
+) *batchProcess {
+	return &batchProcess{
+		opts: opts,
+		cfg:  cfg,
+		step: step,
+	}
+}
+
+func (bp *batchProcess) run() error {
 	// Create log file to store results
 	logFile, err := os.Create("batch_process_log.txt")
 	if err != nil {
@@ -113,27 +131,53 @@ func processBatchProcess(cfg *common.Config, step *common.Step) error {
 	defer logWriter.Flush()
 
 	// Get keadm packages
-	step.Printf("Preparing keadm packages.")
-	if err = prepareKeadmPackages(cfg); err != nil {
+	bp.step.Printf("Preparing keadm packages.")
+
+	// Obtain the keadm installation package according to the configuration.
+	// If "enable" is set to true, then download it; otherwise, obtain it from the offlinePackageDir and extract it.
+	if bp.cfg.Keadm.Download.Enable == nil || *bp.cfg.Keadm.Download.Enable {
+		err = downloadKeadmPackages(bp.cfg)
+	} else {
+		err = useOfflinePackages(bp.cfg)
+	}
+	if err != nil {
 		return errors.Errorf("failed to prepare keadm packages, %v", err)
 	}
 
-	step.Printf("Batch process nodes.")
+	bp.step.Printf("Batch process nodes.")
+	// Set default value for MaxRunNum
+	if bp.cfg.MaxRunNum == 0 {
+		bp.cfg.MaxRunNum = defaultMaxRunNum
+	}
+
 	// Batch process edge nodes
-	if err = batchProcessNodes(cfg, logWriter); err != nil {
-		return errors.Errorf("failed to batch process nodes, %v", err)
-	}
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, bp.cfg.MaxRunNum)
+	for _, node := range bp.cfg.Nodes {
+		wg.Add(1)
+		go func(node common.Node) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
+			var result string
+			if err := processNode(&node, bp.cfg, bp.opts.EnableVerifyPublicKey); err != nil {
+				result = fmt.Sprintf("failed to process node %s: %v", node.NodeName, err)
+				klog.Error(result)
+			} else {
+				result = fmt.Sprintf("successfully processed node %s", node.NodeName)
+				klog.Info(result)
+			}
+
+			// Log result to file
+			_, err := logWriter.WriteString(result + "\n")
+			if err != nil {
+				klog.Errorf("failed to write log entry for node %s: %v", node.NodeName, err)
+			}
+		}(node)
+	}
+	wg.Wait()
 	return nil
-}
-
-// Obtain the keadm installation package according to the configuration.
-// If "enable" is set to true, then download it; otherwise, obtain it from the offlinePackageDir and extract it.
-func prepareKeadmPackages(cfg *common.Config) error {
-	if cfg.Keadm.Download.Enable == nil || *cfg.Keadm.Download.Enable {
-		return downloadKeadmPackages(cfg)
-	}
-	return useOfflinePackages(cfg)
 }
 
 // Obtain and extract the installation package from the offlinePackageDir provided by the user
@@ -220,45 +264,10 @@ func extractTarGz(tarFile, destDir string) error {
 	return nil
 }
 
-// batch process nodes
-func batchProcessNodes(cfg *common.Config, logWriter *bufio.Writer) error {
-	// Set default value for MaxRunNum
-	if cfg.MaxRunNum == 0 {
-		cfg.MaxRunNum = defaultMaxRunNum
-	}
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, cfg.MaxRunNum)
-	for _, node := range cfg.Nodes {
-		wg.Add(1)
-		go func(node common.Node) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
-			var result string
-			if err := processNode(&node, cfg); err != nil {
-				result = fmt.Sprintf("Failed to process node %s: %v", node.NodeName, err)
-				klog.Error(result)
-			} else {
-				result = fmt.Sprintf("Successfully processed node %s", node.NodeName)
-				klog.Info(result)
-			}
-
-			// Log result to file
-			_, err := logWriter.WriteString(result + "\n")
-			if err != nil {
-				klog.Errorf("Failed to write log entry for node %s: %v", node.NodeName, err)
-			}
-		}(node)
-	}
-	wg.Wait()
-	return nil
-}
-
 // Process single node
-func processNode(node *common.Node, cfg *common.Config) error {
+func processNode(node *common.Node, cfg *common.Config, enableVerifyPublicKey bool) error {
 	klog.Infof("Processing node %s", node.NodeName)
-	client, err := connectSSH(node.SSH)
+	client, err := connectSSH(node.SSH, enableVerifyPublicKey)
 	if err != nil {
 		return errors.Errorf("failed to connect to %s: %v", node.NodeName, err)
 	}
@@ -293,7 +302,7 @@ func processNode(node *common.Node, cfg *common.Config) error {
 }
 
 // SSH connection
-func connectSSH(sshConfig common.SSH) (*ssh.Client, error) {
+func connectSSH(sshConfig common.SSH, enableVerifyPublicKey bool) (*ssh.Client, error) {
 	var auth ssh.AuthMethod
 
 	switch sshConfig.Auth.Type {
@@ -320,11 +329,30 @@ func connectSSH(sshConfig common.SSH) (*ssh.Client, error) {
 	default:
 		return nil, errors.Errorf("unsupported authentication type: %s", sshConfig.Auth.Type)
 	}
+
 	config := &ssh.ClientConfig{
 		User: sshConfig.Username,
 		Auth: []ssh.AuthMethod{auth},
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
-			return nil
+			if !enableVerifyPublicKey {
+				// Ignore host key verification
+				return nil
+			}
+			knownHosts, err := parseKnownHosts("~/.ssh/known_hosts")
+			if err != nil {
+				return fmt.Errorf("failed to parse known_hosts: %v", err)
+			}
+			expectedKeys, exists := knownHosts[hostname]
+			if !exists {
+				return fmt.Errorf("unknown host: %s", hostname)
+			}
+
+			for _, expectedKey := range expectedKeys {
+				if bytes.Equal(key.Marshal(), expectedKey.Marshal()) {
+					return nil
+				}
+			}
+			return fmt.Errorf("host key mismatch for %s", hostname)
 		},
 		Timeout: 5 * time.Second,
 	}
@@ -338,6 +366,34 @@ func connectSSH(sshConfig common.SSH) (*ssh.Client, error) {
 
 	addr := fmt.Sprintf("%s:%d", sshConfig.IP, sshPort)
 	return ssh.Dial("tcp", addr, config)
+}
+
+func parseKnownHosts(filename string) (map[string][]ssh.PublicKey, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, fmt.Errorf("open file %s failed, err: %w", filename, err)
+	}
+	defer file.Close()
+
+	knownHosts := make(map[string][]ssh.PublicKey)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip comments and empty lines
+		}
+		_, hostnames, pubKey, _, _, err := ssh.ParseKnownHosts([]byte(line))
+		if err != nil {
+			klog.Warningf("failed to parse public key in known_hosts: %v", err)
+			continue
+		}
+
+		for _, hostname := range hostnames {
+			knownHosts[hostname] = append(knownHosts[hostname], pubKey)
+		}
+	}
+
+	return knownHosts, nil
 }
 
 // create remote directory
@@ -478,4 +534,5 @@ func determineArchitecture(output string) string {
 
 func addBacthProcessOtherFlags(cmd *cobra.Command, batchProcessOpts *common.BatchProcessOptions) {
 	cmd.Flags().StringVarP(&batchProcessOpts.ConfigFile, "config", "c", "", "Path to config file")
+	cmd.Flags().BoolVar(&batchProcessOpts.EnableVerifyPublicKey, "enable-verify-publickey", false, "Enable verify public key")
 }

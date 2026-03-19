@@ -38,6 +38,7 @@ import (
 	taskmsg "github.com/kubeedge/kubeedge/pkg/nodetask/message"
 	upgradeedge "github.com/kubeedge/kubeedge/pkg/upgrade/edge"
 	"github.com/kubeedge/kubeedge/pkg/util/execs"
+	"github.com/kubeedge/kubeedge/pkg/util/validation"
 )
 
 func newNodeUpgradeJobRunner() *ActionRunner {
@@ -129,6 +130,15 @@ func (nodeUpgradeJobActionHandler) checkItems(
 			resp.err = err
 			return resp
 		}
+	}
+
+	if !validation.ValidateVersion(spec.Version) {
+		resp.err = fmt.Errorf("invalid version %s", spec.Version)
+		return resp
+	}
+	if !validation.ValidateImageRepo(spec.Image) {
+		resp.err = fmt.Errorf("invalid image repo %s", spec.Image)
+		return resp
 	}
 
 	// Pull installation-package image.

@@ -19,6 +19,14 @@ package validation
 import (
 	"fmt"
 	"net"
+	"regexp"
+)
+
+// Regexps
+var (
+	regexpImageRepo = regexp.MustCompile(`^[a-z0-9]+(?:[._\-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._\-][a-z0-9]+)*)+$`)
+
+	regexpVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[a-zA-Z0-9_.]+(?:-[a-zA-Z0-9_.]+)*)?$`)
 )
 
 // IsValidIP tests that the argument is a valid IP address.
@@ -41,4 +49,12 @@ func IsValidPortNum(port int) []string {
 // between" validation failure.
 func InclusiveRangeError(lo, hi int) string {
 	return fmt.Sprintf(`must be between %d and %d, inclusive`, lo, hi)
+}
+
+func ValidateImageRepo(image string) bool {
+	return regexpImageRepo.MatchString(image)
+}
+
+func ValidateVersion(version string) bool {
+	return regexpVersion.MatchString(version)
 }

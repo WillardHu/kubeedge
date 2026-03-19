@@ -95,3 +95,56 @@ func TestInclusiveRangeError(t *testing.T) {
 	expect := "must be between 1 and 65535, inclusive"
 	assert.Equal(result, expect)
 }
+
+func TestValidateImageRepo(t *testing.T) {
+	cases := []struct {
+		imageRepo string
+		want      bool
+	}{
+		{
+			imageRepo: "installation-package",
+			want:      false,
+		},
+		{
+			imageRepo: "kubeedge/installation-package",
+			want:      true,
+		},
+		{
+			imageRepo: "kubeedge/installation-package;bash",
+			want:      false,
+		},
+		{
+			imageRepo: "_kubeedge/installation-package",
+			want:      false,
+		},
+		{
+			imageRepo: "aaa.bbb.ccc/kubeedge/installation-package",
+			want:      true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.imageRepo, func(t *testing.T) {
+			assert.Equal(t, ValidateImageRepo(c.imageRepo), c.want)
+		})
+	}
+}
+
+func TestValidateVersion(t *testing.T) {
+	cases := []struct {
+		version string
+		want    bool
+	}{
+		{version: "v1.0.0", want: true},
+		{version: "V1.0.0", want: false},
+		{version: "1.0.0", want: false},
+		{version: "v1.0", want: false},
+		{version: "v1.0.0;bash", want: false},
+		{version: "v1.0.0-rc1", want: true},
+		{version: "v1.0.0-rc1.1", want: true},
+	}
+	for _, c := range cases {
+		t.Run(c.version, func(t *testing.T) {
+			assert.Equal(t, ValidateVersion(c.version), c.want)
+		})
+	}
+}

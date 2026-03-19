@@ -221,7 +221,12 @@ func GetCurrentVersion(version string) (string, error) {
 	return GetCurrentVersion(remoteVersion)
 }
 
-func DecompressTarGz(gzFilePath, dest string) error {
+type TrustedFile struct {
+	Path    string
+	IsRegex bool
+}
+
+func DecompressTarGz(gzFilePath, dest string, trustedFiles ...TrustedFile) error {
 	reader, err := os.Open(gzFilePath)
 	if err != nil {
 		return err
@@ -252,6 +257,11 @@ func DecompressTarGz(gzFilePath, dest string) error {
 			continue
 		}
 
+		if len(trustedFiles) > 0 && !isTrustedFile(trustedFiles, header.Name) {
+			klog.Warningf("file %s is not trusted, skip", header.Name)
+			continue
+		}
+
 		target := filepath.Join(dest, header.Name)
 		switch header.Typeflag {
 		case tar.TypeDir:
@@ -272,6 +282,30 @@ func DecompressTarGz(gzFilePath, dest string) error {
 			writer.Close() // Close the file explicitly after successful write
 		}
 	}
+}
+
+func isTrustedFile(trustedFiles []TrustedFile, fileName string) bool {
+	var verified bool
+	for _, trustedFile := range trustedFiles {
+		if trustedFile.IsRegex {
+			b, err := regexp.MatchString(trustedFile.Path, fileName)
+			if err != nil {
+				klog.Warningf("regex %s failed to match file %s, error: %v",
+					trustedFile.Path, fileName, err)
+				continue
+			}
+			if b {
+				verified = true
+				break
+			}
+		} else {
+			if trustedFile.Path == fileName {
+				verified = true
+				break
+			}
+		}
+	}
+	return verified
 }
 
 func Compress(tarName string, paths []string) error {

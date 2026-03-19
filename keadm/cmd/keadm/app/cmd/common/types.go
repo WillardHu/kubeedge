@@ -153,7 +153,8 @@ type DiagnoseObject struct {
 
 // BatchProcessOptions has the kubeedge batch process information filled by CLI
 type BatchProcessOptions struct {
-	ConfigFile string
+	ConfigFile            string
+	EnableVerifyPublicKey bool
 }
 
 // Config defines the batch-process config file format
